@@ -1,0 +1,258 @@
+; To apply this patch, run:  bincmp XVI32.exe -patch patch_base.txt
+; ( https://sourceforge.net/projects/bincmp/files/bincmp2/ )
+
+; This patch fixes the following problems:
+
+; The problem (1):
+;   When "Help" is pressed in the XVIscript Editor, a browser is opened instead of the CHM help file.
+;
+; The fix (1):
+;   replacing `@000A66D0  mov eax, [000B59E8] ; Application:TApplication` and the following `000A66DC  call 0005F7C0 ; TApplication.HelpContext`
+;   with `@000A66D0  jmp 000B2514 ; Contents1Click` and the following `nop` instructions.
+
+00095AD0:  A1  E9
+00095AD1:  E8  3F
+00095AD2:  59  BE
+00095AD3:  0B  00
+00095AD5:  8B  90
+00095AD6:  00  90
+00095AD7:  BA  90
+00095AD8:  47  90
+00095AD9:  00  90
+00095ADA:  00  90
+00095ADB:  00  90
+00095ADC:  E8  90
+00095ADD:  DF  90
+00095ADF:  FB  90
+00095AE0:  FF  90
+00095AE1:  C3  90
+
+; The problem (2):
+;   XVI32 loses the focus after a successful script execution from the XVIscript Editor.
+;
+; The fix (2):
+;   replacing `@000A69C1  call 0008D08C` with `@000A69C1  jmp  000A6B2A`
+;   because @000A6B2A initiates a proper ShowMessage flow for the "Syntax Check" button.
+
+00095DBE:  8B  90
+00095DBF:  45  90
+00095DC0:  F0  90
+00095DC1:  E8  E9
+00095DC2:  C6  64
+00095DC3:  66  01
+00095DC4:  FE  00
+00095DC5:  FF  00
+
+; The problem (3):
+;   When XVI32 starts, its window visually changes its position.
+;
+; The fix (3):
+;   TFormMain.FormCreate at 0xAA928 was redirected into a CODE cave so that, before the usual
+;   handle/clipboard setup, the form does Visible := False (TCustomForm.SetVisible).
+;
+;   TFormMain.FormCreate at 0xAAD52 (the original Close1Click call site near the end of create)
+;   was redirected into a cave that:
+;   - calls sub_000AB324 (load saved window position / state from INI) while still hidden;
+;   - runs the original Close1Click logic, then returns into FormCreate.
+;   So the saved geometry is applied _before_ first show, not only later on activate.
+;
+;   CODE section padding (end of the CODE segment, VirtualSize extended) was filled with those
+;   caves (and related helpers). File size stays the same; only unused pad in CODE is used.
+;
+;   TFormMain.ModusText1Click at 0xAE68B and 0xAE729 (the two SetFocus sites for text/hex grids,
+;   offsets +0x310 / +0x314) were redirected to caves that call SetFocus only if FVisible
+;   (TControl +0x47) is set, then continue at the original following instructions.
+;   Purpose: while the form is still invisible during the early FormCreate/sub_000AB324 work,
+;   skip those focus calls (they would be wrong/noisy); once the window is visible, keep the
+;   original SetFocus-before-SetSlaveGrid order so single-Tab hex<->text still works.
+;
+;   TFormMain.FormActivate at 0xAAE3B: the call to sub_000AB324 is replaced with a small stub
+;   that only SetFocus'es the hex or text grid according to the current modus flag (0xB5B00),
+;   then returns.
+;   Purpose: avoid running the full INI/position routine again on activate (position already
+;   applied at end of FormCreate); only restore keyboard focus to the right grid.
+
+00000200:  5C  EC
+00099D28:  8B  E9
+00099D29:  C3  2F
+00099D2A:  E8  94
+00099D2B:  B9  00
+00099D2C:  84  00
+00099D2D:  00  90
+00099D2E:  00  90
+00099D2F:  8B  90
+00099D30:  C3  90
+00099D31:  E8  90
+00099D32:  BE  90
+00099D33:  DF  90
+00099D34:  F9  90
+00099D35:  FF  90
+00099D36:  50  90
+00099D37:  E8  90
+00099D38:  34  90
+00099D39:  C7  90
+00099D3A:  F6  90
+00099D3B:  FF  90
+00099D3C:  89  90
+00099D3D:  83  90
+00099D3E:  9C  90
+00099D3F:  04  90
+00099D40:  00  90
+00099D41:  00  90
+0009A152:  8B  E9
+0009A153:  D7  2D
+0009A154:  8B  90
+0009A155:  C3  00
+0009A156:  E8  00
+0009A157:  3D  90
+0009A158:  46  90
+0009A159:  00  90
+0009A15A:  00  90
+0009A23C:  E4  8B
+0009A23D:  04  8F
+0009DA8B:  8B  E9
+0009DA8C:  83  09
+0009DA8D:  10  57
+0009DA8E:  03  00
+0009DA90:  00  90
+0009DA91:  8B  90
+0009DA92:  10  90
+0009DA93:  FF  90
+0009DA94:  92  90
+0009DA95:  B4  90
+0009DA96:  00  90
+0009DA97:  00  90
+0009DA98:  00  90
+0009DB29:  8B  E9
+0009DB2A:  83  84
+0009DB2B:  14  56
+0009DB2C:  03  00
+0009DB2E:  00  90
+0009DB2F:  8B  90
+0009DB30:  10  90
+0009DB31:  FF  90
+0009DB32:  92  90
+0009DB33:  B4  90
+0009DB34:  00  90
+0009DB35:  00  90
+0009DB36:  00  90
+000A315C:  00  33
+000A315D:  00  D2
+000A315E:  00  8B
+000A315F:  00  C3
+000A3160:  00  E8
+000A3161:  00  1F
+000A3162:  00  53
+000A3163:  00  FA
+000A3164:  00  FF
+000A3165:  00  8B
+000A3166:  00  C3
+000A3167:  00  E8
+000A3168:  00  7C
+000A3169:  00  F0
+000A316A:  00  FF
+000A316B:  00  FF
+000A316C:  00  8B
+000A316D:  00  C3
+000A316E:  00  E8
+000A316F:  00  81
+000A3170:  00  4B
+000A3171:  00  F9
+000A3172:  00  FF
+000A3173:  00  50
+000A3174:  00  E8
+000A3175:  00  F7
+000A3176:  00  32
+000A3177:  00  F6
+000A3178:  00  FF
+000A3179:  00  89
+000A317A:  00  83
+000A317B:  00  9C
+000A317C:  00  04
+000A317F:  00  E9
+000A3180:  00  BE
+000A3181:  00  6B
+000A3182:  00  FF
+000A3183:  00  FF
+000A3184:  00  8B
+000A3185:  00  C3
+000A3186:  00  E8
+000A3187:  00  99
+000A3188:  00  75
+000A3189:  00  FF
+000A318A:  00  FF
+000A318B:  00  8B
+000A318C:  00  D7
+000A318D:  00  8B
+000A318E:  00  C3
+000A318F:  00  E8
+000A3190:  00  04
+000A3191:  00  B6
+000A3192:  00  FF
+000A3193:  00  FF
+000A3194:  00  E9
+000A3195:  00  C2
+000A3196:  00  6F
+000A3197:  00  FF
+000A3198:  00  FF
+000A3199:  00  80
+000A319A:  00  7B
+000A319B:  00  47
+000A319D:  00  74
+000A319E:  00  0E
+000A319F:  00  8B
+000A31A0:  00  83
+000A31A1:  00  10
+000A31A2:  00  03
+000A31A5:  00  8B
+000A31A6:  00  10
+000A31A7:  00  FF
+000A31A8:  00  92
+000A31A9:  00  B4
+000A31AD:  00  E9
+000A31AE:  00  E7
+000A31AF:  00  A8
+000A31B0:  00  FF
+000A31B1:  00  FF
+000A31B2:  00  80
+000A31B3:  00  7B
+000A31B4:  00  47
+000A31B6:  00  74
+000A31B7:  00  0E
+000A31B8:  00  8B
+000A31B9:  00  83
+000A31BA:  00  14
+000A31BB:  00  03
+000A31BE:  00  8B
+000A31BF:  00  10
+000A31C0:  00  FF
+000A31C1:  00  92
+000A31C2:  00  B4
+000A31C6:  00  E9
+000A31C7:  00  6C
+000A31C8:  00  A9
+000A31C9:  00  FF
+000A31CA:  00  FF
+000A31CB:  00  A1
+000A31CD:  00  5B
+000A31CE:  00  0B
+000A31D0:  00  80
+000A31D1:  00  38
+000A31D3:  00  74
+000A31D4:  00  08
+000A31D5:  00  8B
+000A31D6:  00  83
+000A31D7:  00  10
+000A31D8:  00  03
+000A31DB:  00  EB
+000A31DC:  00  06
+000A31DD:  00  8B
+000A31DE:  00  83
+000A31DF:  00  14
+000A31E0:  00  03
+000A31E3:  00  8B
+000A31E4:  00  10
+000A31E5:  00  FF
+000A31E6:  00  92
+000A31E7:  00  B4
+000A31EB:  00  C3
