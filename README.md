@@ -20,7 +20,7 @@ However, time marches on, and some features have become outdated. For example, t
   
 Additionally, XVI32's behavior can be improved in a few small ways. For instance, we can eliminate window flickering on start-up, restrict the "Accessing network" status message to remote files only, and prompt the user to save an unnamed XVIscript instead of throwing a "Cannot create file" error.  
 
-These are tiny rough edges that just need a bit of care to work as originally intended. So I treat this patch as a clean-up correction rather than a "hack."  
+These are tiny rough edges that just need a bit of care to work as originally intended. So I treat this patch as a clean-up correction rather than a "hack".  
   
 I wrote an email to Christian describing this patch and asking whether he would like to host it on XVI32's official page. Here is his answer:  
 > Please understand that I won't update my old software.
@@ -47,4 +47,4 @@ An AI agent "patch" skill was also created later. With this skill, you can simpl
 
 ...and the AI agent will take care of the rest. As simple as that.
 
-You can find the complete XVI32 archive, including the patched binary, under the **Releases** section.
+You can find the complete XVI32 archive, including the patched binary, under the [Releases](https://github.com/d0vgan/xvi32-2-55-patch/releases) section.
