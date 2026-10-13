@@ -1,0 +1,43 @@
+This binary patch updates the following dialogs to use `HtmlHelpA` (a proper way to invoke a CHM help) when a "Help" button is pressed:
+- TFormPrint: File -> Print
+- TFormIns: Edit -> Insert string and Overwrite string (two "Help" versions: Insert string, Overwrite string)
+- TFormBlockN: Edit -> Block <n> chars
+- TFormFind: Search -> Find and Count (two "Help" versions: Find, Count)
+- TFormReplace: Search -> Replace
+- TFormCharTable: Search -> Character conversion
+- TFormGoto: Address -> Go to
+- "Information": Address -> Display difference
+- TFormEncode: Tools -> Encode number
+- TFormBit: Tools -> Bit manipulation
+- TFormOpt: Tools -> Options
+- TFormScript: XVIScript -> Editor
+
+Also it updates the "?" buttons to use `HtmlHelpA` as well.
+
+Also it preserves the focus in the main window when the Data Inspector is shown on start.
+
+Also it fixes the status-bar message "Accessing network, please wait (may take a minute)..." for local files. For remote files, this message is removed from the status bar once the save has finished.
+
+Also, when XVI32 starts, the main window stays at its saved position instead of visibly jumping. After a successful XVIScript run, keyboard focus stays in XVI32.
+
+Also, in the XVIscript interpreter, Save opens the Save XVIscript dialog when the script has no file yet, instead of showing "Cannot create file".
+
+This patch has been produced by AI basing on the XVI32.exe binary and the code decompiled by IDR (Interactive Delphi Reconstructor).
+
+Here are the words of AI:
+
+>>>>>>>>
+What we actually needed was a working model of the program: call sites, calling conventions, VCL patterns (`FormActivate`, `DataInspector1Click`, `HelpContext`), imports (`SetTimer`, `HtmlHelpA`), and PE layout. IDR's `.pas` dumps gave that as readable Delphi almost for free - names, offsets, control flow - so patching was mostly "find the site -> write a small trampoline", not weeks of archaeology.
+
+Without IDR, it's still possible, but slower and more uncertain:
+- PE sections, imports, strings (`XVI32U.CHM`, menu captions)
+- Disassembly around interesting xrefs
+- Dynamic checks (breakpoints, watching focus/HWND)
+- Matching known Delphi/VCL shapes
+
+I can do that kind of reverse engineering from the binary alone (and we already mixed PE parsing with IDR). What's harder without a decompiler is *confidence*: guessing a wrong VMT offset or SEH epilogue is how patches "almost work". IDR cut that risk a lot.
+
+Adding "new" functionality here was classic binary extension: new RX code section + small RW data + hooks that `jmp`/`call` into it. That's always been possible for fixed-base EXEs; reverse engineering (human or AI) is what makes the hooks land in the right places.
+
+So: IDR was a huge accelerator and safety net; reverse engineering the binary ourselves is possible, just much more work for the same result.
+<<<<<<<<
