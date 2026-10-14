@@ -13,6 +13,17 @@ XVI32 is a portable application. It is well-designed, small, and fast. Here are 
 - Block operations (copy, overwrite, move, delete)
 
 
+### XVI32: License
+
+The License of XVI32 clearly states:
+
+> You can freely distribute copies of the main archive **as long as no alterations are made to the contents** [...].  
+> **You may not modify, reverse engineer, decompile, or disassemble the object code portions of this software**.  
+> BY DOWNLOADING, INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, **YOU AGREE TO BE BOUND BY ALL OF THE TERMS AND CONDITIONS OF THIS LICENSE AND DISCLAIMER AGREEMENT**.  
+
+To comply with the terms of use, this patch comes as a standalone Python program, without any files from XVI32 distribution, especially the altered binaries.
+
+
 ### This Patch: Intention and Goal
 
 XVI32 is a reliable program that has stood the test of time.  
@@ -31,12 +42,26 @@ After some thought, I replied:
 
 So... here we are!
 
+### This Patch: Usage
+
+You need the official version of XVI32 2.55.  
+You also need Python (https://www.python.org/) on your machine.  
+To patch the executable file `XVI32.exe`, follow these steps:
+
+1. Go to your XVI32 folder;
+2. Download the file `patch_htmlhelp.py` and copy it to your XVI32 folder;
+3. Rename `XVI32.exe` to `XVI32-0.exe`;
+4. Run this command: `python patch_htmlhelp.py` - it will produce an output file `XVI32-2.exe`;
+5. Rename `XVI32-2.exe` to `XVI32.exe`.
+
+Since `XVI32-0.exe` (the original executable) is preserved, you can always restore it.
+
 ### This Patch: Technical Details
 
 This patch relies on three main components:
-- The XVI32 2.55 code decompiled using IDR ([Interactive Delphi Reconstructor](https://github.com/crypto2011/IDR))
-- `XVI32-0.exe`, the corresponding official version 2.55 executable
-- The patch script `patch_htmlhelp.py` generated with the help of an AI agent  
+- `XVI32-0.exe`, the official version 2.55 executable;
+- the executable's code decompiled using IDR ([Interactive Delphi Reconstructor](https://github.com/crypto2011/IDR));
+- the Python program `patch_htmlhelp.py` generated with the help of an AI agent.  
   
 Although this patch originally started as a fix to redirect all "Help" and "?" buttons to the CHM file instead of HLP, the Python script kept its original name, `patch_htmlhelp.py`.  
 
