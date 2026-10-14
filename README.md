@@ -1,6 +1,6 @@
 # XVI32 2.55 Patch
 
-### XVI32: The Roots
+### XVI32: Hex Editor
 
 XVI32 is a freeware hex editor running under Windows, developed by Christian Maas.  
 The latest version of XVI32 is 2.55:  
