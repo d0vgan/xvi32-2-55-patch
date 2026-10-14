@@ -44,8 +44,8 @@ So... here we are!
 
 ### This Patch: Usage
 
-You need the official version of XVI32 2.55.  
-You also need Python (https://www.python.org/) on your machine.  
+You need the official version of [XVI32 2.55](http://www.chmaas.handshake.de/delphi/freeware/xvi32/xvi32.htm).  
+You also need [Python](https://www.python.org/) on your machine.  
 To patch the executable file `XVI32.exe`, follow these steps:
 
 1. Go to your XVI32 folder;
