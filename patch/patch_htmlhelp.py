@@ -72,6 +72,26 @@ jumps to a hook that repeats 00099890 with column 0 and row 0, the same
 registers sub_000998B0 uses to reload the whole visible text and hex grids.
 The cursor globals are not written.
 
+The same conversion sets the file-modified flag with setg on the replacement
+count after every byte, so a run that replaces nothing clears the flag and a
+later close drops earlier edits. That setg is removed. The refresh hook reads
+the count through the pointer at [ebp-4] (the edx argument of sub_0009B42C,
+stored by `mov [ebp-4], edx` at 0009B43C) and sets gvar_000B6BA5 only when
+the count is greater than zero.
+
+sub_0009B070 clears the 256-byte table at gvar_000B6BF4 before it reads the
+file, and ButtonLoadClick clears the stored name, the table, and the window
+title when that read fails. The clear call at 0009B0A6 jumps to a hook that
+copies the table into .hdata and then calls sub_0009B244. The exception path
+at 0009B1F8 jumps to a hook that copies the saved table back, calls
+@DoneExcept, and continues at 0009B1FF. ButtonLoadClick's failure path jumps
+from 000A2CF8 to 000A2D1E, so the name, the table, and the title stay while
+the error message is still shown. The CHARCON command's own call to
+sub_0009B244 at 000A8727 is removed; otherwise a failed script load would
+save the empty table and restore that. Startup still calls sub_0009B244 after
+its own read error, so a missing remembered table still becomes the identity
+table.
+
 """
 from __future__ import annotations
 
@@ -126,6 +146,7 @@ G_HTMLHELPA_VA = 0
 G_FORM_VA = 0
 G_DI_HWND_VA = 0
 G_NET_STATUS_VA = 0
+G_TABLE_BACKUP_VA = 0
 
 HH_DISPLAY_TOPIC = 0
 PATH_BUF = 0x104
@@ -139,7 +160,7 @@ SECTION_RAW = 0x1000  # helper + DI + dual maps (~2.5K strings/tables)
 
 HDATA_NAME = b".hdata\x00\x00"
 HDATA_CHARS = 0xC0000040  # INITIALIZED_DATA|READ|WRITE (same as DATA)
-HDATA_VIRT = 16  # HtmlHelpA, g_form, g_di_hwnd, g_net_status
+HDATA_VIRT = 16 + 256  # HtmlHelpA, g_form, g_di_hwnd, g_net_status, then the conversion-table copy
 STATUS_SETTEXT_VA = 0x6BBD0  # TStatusPanel.SetText
 STATUS_GETITEM_VA = 0x6BC58  # TStatusPanels.GetItem
 SCREEN_SETCURSOR_VA = 0x5D6F4  # TScreen.SetCursor
@@ -165,6 +186,25 @@ VISIBLE_END_VA = 0x9958C  # sub_0009958C -> eax
 VISIBLE_END_PTR_VA = 0xB6B88  # gvar_000B6B88
 FILL_GRID_VA = 0x996A4  # sub_000996A4(al=col, dl=row)
 REFRESH_STATUS_VA = 0x983B8  # sub_000983B8
+# 0009B4DA setg byte ptr [gvar_000B6BA5]. Replaced with NOPs; the refresh
+# hook writes 1 only when the replacement count is greater than zero.
+MODIFIED_FLAG_VA = 0xB6BA5
+SETG_VA = 0x9B4DA
+# gvar_000B6BF4, 256 bytes. 0009B246 mov eax, 0B6BF4.
+TABLE_VA = 0xB6BF4
+IDENTITY_VA = 0x9B244  # sub_0009B244
+# 0009B0A6 call 0009B244, while esi is the text-file record.
+LOAD_CLEAR_VA = 0x9B0A6
+# 0009B1F8 xor ebx,ebx / call @DoneExcept. Resume is 0009B1FF xor eax,eax.
+LOAD_FAIL_VA = 0x9B1F8
+LOAD_FAIL_RESUME_VA = 0x9B1FF
+DONEEXCEPT_VA = 0x1356C
+# ButtonLoadClick failure: 000A2CF8 through the SetText at 000A2D19.
+# 000A2D1E lea eax,[ebp-8] formats "Error reading %s".
+BUTTON_LOAD_FAIL_VA = 0xA2CF8
+BUTTON_LOAD_ERR_VA = 0xA2D1E
+# CHARCON calls 0009B244 before 0009B070, which would snapshot the identity map.
+SCRIPT_CHARCON_CLEAR_VA = 0xA8727
 HDATA_RAW = 0x200  # FileAlign minimum
 
 # Help button / Contents: full dialog topics (may differ from HLP CTXOMAP popups).
@@ -869,8 +909,27 @@ def build_charconv_refresh_hook(cave_va: int) -> bytes:
     pass column 0 and row 0, then call 000983B8. The cursor globals are
     left as they are. The three callees preserve ebx, esi, and edi, same
     as the Delphi call being replaced. The caller overwrites eax at 0009B516.
+
+    0009B4DA setg byte ptr [gvar_000B6BA5] runs inside the per-byte loop, so a
+    count of zero clears the modified flag. Those 7 bytes are NOP'd. This
+    hook still has sub_0009B42C's ebp: 0009B43C stored the caller's count
+    pointer with `mov [ebp-4], edx`, and 0009B4D4 reads it back with
+    `mov eax, [ebp-4]`. The same compare, used once after the loop, sets the
+    flag only when that dword is greater than zero. eax is free; the caller
+    overwrites it at 0009B516.
     """
     e = Emitter(cave_va)
+    # 0009B4D4 mov eax, [ebp-4] / 0009B4D7 cmp dword ptr [eax], 0
+    e.emit(b"\x8B\x45\xFC")
+    e.emit(b"\x83\x38\x00")
+    jle_at = len(e.buf)
+    e.emit(b"\x7E\x00")  # jle skip  (count == 0: leave gvar_000B6BA5 as it is)
+    # mov byte ptr [gvar_000B6BA5], 1
+    e.emit(b"\xC6\x05" + struct.pack("<I", MODIFIED_FLAG_VA) + b"\x01")
+    rel = len(e.buf) - (jle_at + 2)
+    if not -128 <= rel <= 127:
+        raise SystemExit(f"modified-flag jump out of range ({rel})")
+    e.buf[jle_at + 1] = rel & 0xFF
     e.emit(enc_call(e.va, VISIBLE_END_VA))
     # 00099895 mov [gvar_000B6B88], eax
     e.emit(b"\xA3" + struct.pack("<I", VISIBLE_END_PTR_VA))
@@ -879,6 +938,57 @@ def build_charconv_refresh_hook(cave_va: int) -> bytes:
     e.emit(enc_call(e.va, FILL_GRID_VA))
     e.emit(enc_call(e.va, REFRESH_STATUS_VA))
     e.emit(b"\xC3")
+    return bytes(e.buf)
+
+
+def build_table_save_hook(cave_va: int) -> bytes:
+    """Copy the conversion table, then clear it the way 0009B0A6 did.
+
+    sub_0009B070 calls sub_0009B244 before reading, so a bad file replaces
+    the table with the identity map and the exception path returns 0 with
+    that empty map still in place. No immediate selects "keep the old table".
+    esi at this call is the text-file record (`lea esi, [ebp-1D4]` at
+    0009B092). The copy uses esi and edi, so both are saved and restored
+    before sub_0009B244. That routine preserves ebx, esi, and edi. The 256
+    bytes at gvar_000B6BF4 are the whole table (0009B246 through the wrap
+    of dl).
+    """
+    e = Emitter(cave_va)
+    e.emit(b"\x56")  # push esi
+    e.emit(b"\x57")  # push edi
+    e.emit(b"\xFC")  # cld
+    e.emit(b"\xBE" + struct.pack("<I", TABLE_VA))  # mov esi, gvar_000B6BF4
+    e.emit(b"\xBF" + struct.pack("<I", G_TABLE_BACKUP_VA))  # mov edi, backup
+    e.emit(b"\xB9" + struct.pack("<I", 64))  # mov ecx, 64
+    e.emit(b"\xF3\xA5")  # rep movsd
+    e.emit(b"\x5F")  # pop edi
+    e.emit(b"\x5E")  # pop esi
+    e.emit(enc_call(e.va, IDENTITY_VA))
+    e.emit(b"\xC3")
+    return bytes(e.buf)
+
+
+def build_table_restore_hook(cave_va: int) -> bytes:
+    """Put the saved table back when sub_0009B070's read raises.
+
+    0009B1F8 is `xor ebx, ebx` / `call @DoneExcept`. ebx is the function
+    result and must stay 0. The copy saves esi and edi; @DoneExcept preserves
+    ebx, esi, and edi. Execution continues at 0009B1FF (`xor eax, eax`),
+    the outer finally. There is no flag in the function that means "restore".
+    """
+    e = Emitter(cave_va)
+    e.emit(b"\x33\xDB")  # xor ebx, ebx   as at 0009B1F8
+    e.emit(b"\x56")  # push esi
+    e.emit(b"\x57")  # push edi
+    e.emit(b"\xFC")  # cld
+    e.emit(b"\xBE" + struct.pack("<I", G_TABLE_BACKUP_VA))
+    e.emit(b"\xBF" + struct.pack("<I", TABLE_VA))
+    e.emit(b"\xB9" + struct.pack("<I", 64))
+    e.emit(b"\xF3\xA5")
+    e.emit(b"\x5F")
+    e.emit(b"\x5E")
+    e.emit(enc_call(e.va, DONEEXCEPT_VA))
+    e.emit(enc_jmp(e.va, LOAD_FAIL_RESUME_VA))
     return bytes(e.buf)
 
 
@@ -1104,7 +1214,7 @@ def apply_xvi32_base(data: bytearray) -> None:
 
 
 def patch(data: bytearray) -> dict:
-    global G_HTMLHELPA_VA, G_FORM_VA, G_DI_HWND_VA, G_NET_STATUS_VA
+    global G_HTMLHELPA_VA, G_FORM_VA, G_DI_HWND_VA, G_NET_STATUS_VA, G_TABLE_BACKUP_VA
 
     apply_xvi32_base(data)
     scope_fixed = patch_scope_from_helpcontext(data)
@@ -1122,6 +1232,7 @@ def patch(data: bytearray) -> dict:
     G_FORM_VA = hdata_va + 4
     G_DI_HWND_VA = hdata_va + 8
     G_NET_STATUS_VA = hdata_va + 12
+    G_TABLE_BACKUP_VA = hdata_va + 16
 
     # --- Codegen into one .hhelp blob (helper, DI deferral, hooks) ---
     blob, entries = build_helper(helper_va)
@@ -1182,6 +1293,18 @@ def patch(data: bytearray) -> dict:
     charconv_va = helper_va + len(blob)
     blob += build_charconv_refresh_hook(charconv_va)
     entries["charconv_refresh"] = charconv_va
+
+    while len(blob) & 3:
+        blob += b"\x00"
+    table_save_va = helper_va + len(blob)
+    blob += build_table_save_hook(table_save_va)
+    entries["table_save"] = table_save_va
+
+    while len(blob) & 3:
+        blob += b"\x00"
+    table_restore_va = helper_va + len(blob)
+    blob += build_table_restore_hook(table_restore_va)
+    entries["table_restore"] = table_restore_va
 
     got_help, got_data = append_hhelp_and_hdata(data, blob)
     if got_help != helper_va:
@@ -1342,6 +1465,49 @@ def patch(data: bytearray) -> dict:
         enc_call(CHARCONV_REFRESH_VA, entries["charconv_refresh"]),
         bytes.fromhex("e87ae3ffff"),
     )
+    # 0009B4DA setg byte ptr [0xB6BA5] (0F 9F 05 A5 6B 0B 00). A zero count
+    # must not clear the flag. The refresh hook sets it when the count is > 0.
+    patch_bytes(
+        data,
+        SETG_VA,
+        b"\x90" * 7,
+        bytes.fromhex("0f9f05a56b0b00"),
+    )
+    # 0009B0A6 call 0009B244 (E8 99 01 00 00). Snapshot the table first.
+    patch_bytes(
+        data,
+        LOAD_CLEAR_VA,
+        enc_call(LOAD_CLEAR_VA, entries["table_save"]),
+        bytes.fromhex("e899010000"),
+    )
+    # 0009B1F8 xor ebx,ebx / call @DoneExcept (33 DB E8 6D 83 F7 FF).
+    # Restore the snapshot, then the same DoneExcept, then 0009B1FF.
+    patch_bytes(
+        data,
+        LOAD_FAIL_VA,
+        enc_jmp(LOAD_FAIL_VA, entries["table_restore"]) + b"\x90" * 2,
+        bytes.fromhex("33dbe86d83f7ff"),
+    )
+    # 000A2CF8 clears the name, the table, and the window title. Jump to
+    # 000A2D1E lea eax,[ebp-8], which still shows "Error reading %s".
+    fail_len = BUTTON_LOAD_ERR_VA - BUTTON_LOAD_FAIL_VA
+    patch_bytes(
+        data,
+        BUTTON_LOAD_FAIL_VA,
+        enc_jmp(BUTTON_LOAD_FAIL_VA, BUTTON_LOAD_ERR_VA) + b"\x90" * (fail_len - 5),
+        bytes.fromhex(
+            "a10c590b00e8020df7ffe83d85ffff8d55f8b81f080000"
+            "e8345af7ff8b55f88bc3e842fef9ff"
+        ),
+    )
+    # 000A8727 call 0009B244 (E8 18 2B FF FF). CHARCON's own clear would
+    # make a failed load restore the identity map.
+    patch_bytes(
+        data,
+        SCRIPT_CHARCON_CLEAR_VA,
+        b"\x90" * 5,
+        bytes.fromhex("e8182bffff"),
+    )
 
     # XVIscript Save with no filename: show the Save As dialog.
     # 000A6694 push ebx / mov ebx,eax / mov edx,[0xB5644]
@@ -1380,6 +1546,8 @@ def patch(data: bytearray) -> dict:
         "net_wnet": entries["net_wnet"],
         "script_save": entries["script_save"],
         "charconv_refresh": entries["charconv_refresh"],
+        "table_save": entries["table_save"],
+        "table_restore": entries["table_restore"],
         "scope_from_fixed": scope_fixed,
         "grid_fixed": grid_fixed,
         "size": len(blob),
@@ -1436,6 +1604,11 @@ def main() -> None:
     )
     print(f"  XVIscript Save hook @ {meta['script_save']:#x}")
     print(f"  Character conversion refresh hook @ {meta['charconv_refresh']:#x}")
+    print(
+        f"  Conversion table save @ {meta['table_save']:#x} "
+        f"restore @ {meta['table_restore']:#x} "
+        f"backup @ {G_TABLE_BACKUP_VA:#x}"
+    )
 
 
 if __name__ == "__main__":

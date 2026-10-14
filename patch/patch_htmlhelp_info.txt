@@ -22,7 +22,7 @@ Also it fixes the status-bar message "Accessing network, please wait (may take a
 
 Also, in the XVIscript interpreter, Save opens the Save XVIscript dialog when the script has no file yet, instead of showing "Cannot create file".
 
-Also, Character conversion with Scope from Begin updates the hex and text views for the whole visible area, including bytes before the cursor.
+Also, Character conversion with Scope from Begin updates the hex and text views for the whole visible area, including bytes before the cursor. A conversion that replaces nothing leaves a file that was already modified still marked modified, so closing it still asks whether to save. If loading a conversion table fails, the table already shown stays, including its name in the window title, and the error is still shown. An XVIscript CHARCON command that cannot read its table keeps the current table and still stops with the read error.
 
 This patch has been produced by AI basing on the XVI32.exe binary and the code decompiled by IDR (Interactive Delphi Reconstructor).
 
