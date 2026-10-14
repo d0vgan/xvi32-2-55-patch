@@ -47,4 +47,3 @@ An AI agent "patch" skill was also created later. With this skill, you can simpl
 
 ...and the AI agent will take care of the rest. As simple as that.
 
-You can find the complete XVI32 archive, including the patched binary, under the [Releases](https://github.com/d0vgan/xvi32-2-55-patch/releases) section.
