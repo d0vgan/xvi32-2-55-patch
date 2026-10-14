@@ -14,13 +14,15 @@ This binary patch updates the following dialogs to use `HtmlHelpA` (a proper way
 
 Also it updates the "?" buttons to use `HtmlHelpA` as well.
 
+Also, when XVI32 starts, the main window stays at its saved position instead of visibly jumping. After a successful XVIScript run, keyboard focus stays in XVI32.
+
 Also it preserves the focus in the main window when the Data Inspector is shown on start.
 
 Also it fixes the status-bar message "Accessing network, please wait (may take a minute)..." for local files. For remote files, this message is removed from the status bar once the save has finished.
 
-Also, when XVI32 starts, the main window stays at its saved position instead of visibly jumping. After a successful XVIScript run, keyboard focus stays in XVI32.
-
 Also, in the XVIscript interpreter, Save opens the Save XVIscript dialog when the script has no file yet, instead of showing "Cannot create file".
+
+Also, Character conversion with Scope from Begin updates the hex and text views for the whole visible area, including bytes before the cursor.
 
 This patch has been produced by AI basing on the XVI32.exe binary and the code decompiled by IDR (Interactive Delphi Reconstructor).
 

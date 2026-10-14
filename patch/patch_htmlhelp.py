@@ -63,6 +63,15 @@ and, when nil, calls sub_000A6194 with the form in eax. That routine shows
 the Save XVIscript dialog and calls Save1Click only after the name is stored,
 so the second entry takes the original SaveToFile path.
 
+Character conversion rewrites the file from the scope start through EOF, then
+calls sub_00099890. That routine passes the cursor column (gvar_000B6B7C) and
+row (gvar_000B6B80) to sub_000996A4, so only cells at and after the cursor are
+rewritten. Scope Begin (start offset 1) therefore leaves earlier visible bytes
+stale. No immediate selects the first visible cell, so the call at 0009B511
+jumps to a hook that repeats 00099890 with column 0 and row 0, the same
+registers sub_000998B0 uses to reload the whole visible text and hex grids.
+The cursor globals are not written.
+
 """
 from __future__ import annotations
 
@@ -150,6 +159,12 @@ SCRIPT_SAVE_VA = 0xA6694
 SCRIPT_SAVE_RESUME_VA = 0xA669D
 SCRIPT_SAVEAS_VA = 0xA6194  # sub_000A6194, Save As dialog
 SCRIPT_PATH_PTR_VA = 0xB5644  # ^gvar_000B6CF8:AnsiString
+# sub_0009B42C end: call sub_00099890. That refresh starts at the cursor.
+CHARCONV_REFRESH_VA = 0x9B511
+VISIBLE_END_VA = 0x9958C  # sub_0009958C -> eax
+VISIBLE_END_PTR_VA = 0xB6B88  # gvar_000B6B88
+FILL_GRID_VA = 0x996A4  # sub_000996A4(al=col, dl=row)
+REFRESH_STATUS_VA = 0x983B8  # sub_000983B8
 HDATA_RAW = 0x200  # FileAlign minimum
 
 # Help button / Contents: full dialog topics (may differ from HLP CTXOMAP popups).
@@ -837,6 +852,36 @@ def build_script_save_hook(cave_va: int) -> bytes:
     return bytes(e.buf)
 
 
+def build_charconv_refresh_hook(cave_va: int) -> bytes:
+    """Reload every visible hex and text cell after character conversion.
+
+    sub_0009B42C converts from its start offset through the end of the file,
+    then calls sub_00099890. 0009989A loads dl from gvar_000B6B80 (cursor row)
+    and 000998A0 loads al from gvar_000B6B7C (cursor column). sub_000996A4
+    rewrites grid cells only from that cell forward, so Scope Begin (the
+    `mov eax, 1` at 000B270D) changes bytes before the cursor in the file
+    while the hex and text views keep the old cells. Nothing in that call
+    is an immediate we can retarget at the first visible cell.
+
+    sub_000998B0 already reloads the whole visible area with xor edx,edx /
+    xor eax,eax / call 000996A4 (00099995). This hook is that full reload
+    in the shape of 00099890: call 0009958C, store eax to gvar_000B6B88,
+    pass column 0 and row 0, then call 000983B8. The cursor globals are
+    left as they are. The three callees preserve ebx, esi, and edi, same
+    as the Delphi call being replaced. The caller overwrites eax at 0009B516.
+    """
+    e = Emitter(cave_va)
+    e.emit(enc_call(e.va, VISIBLE_END_VA))
+    # 00099895 mov [gvar_000B6B88], eax
+    e.emit(b"\xA3" + struct.pack("<I", VISIBLE_END_PTR_VA))
+    e.emit(b"\x33\xC0")  # xor eax, eax  column 0, as at 00099997
+    e.emit(b"\x33\xD2")  # xor edx, edx  row 0, as at 00099995
+    e.emit(enc_call(e.va, FILL_GRID_VA))
+    e.emit(enc_call(e.va, REFRESH_STATUS_VA))
+    e.emit(b"\xC3")
+    return bytes(e.buf)
+
+
 def append_hhelp_and_hdata(data: bytearray, blob: bytes) -> tuple[int, int]:
     """Append RX .hhelp (blob) then RW .hdata (8 zero bytes). Returns (hhelp_va, hdata_va)."""
     if len(blob) > SECTION_RAW:
@@ -1132,6 +1177,12 @@ def patch(data: bytearray) -> dict:
     blob += build_script_save_hook(script_save_va)
     entries["script_save"] = script_save_va
 
+    while len(blob) & 3:
+        blob += b"\x00"
+    charconv_va = helper_va + len(blob)
+    blob += build_charconv_refresh_hook(charconv_va)
+    entries["charconv_refresh"] = charconv_va
+
     got_help, got_data = append_hhelp_and_hdata(data, blob)
     if got_help != helper_va:
         raise SystemExit(f"VA mismatch .hhelp {got_help:#x} vs {helper_va:#x}")
@@ -1283,6 +1334,15 @@ def patch(data: bytearray) -> dict:
         enc_call(WNET_CALL_VA, WNET_THUNK_VA),
     )
 
+    # Character conversion: refresh the visible grids from the first cell,
+    # not from the cursor. 0009B511 is `call 00099890` (E8 7A E3 FF FF).
+    patch_bytes(
+        data,
+        CHARCONV_REFRESH_VA,
+        enc_call(CHARCONV_REFRESH_VA, entries["charconv_refresh"]),
+        bytes.fromhex("e87ae3ffff"),
+    )
+
     # XVIscript Save with no filename: show the Save As dialog.
     # 000A6694 push ebx / mov ebx,eax / mov edx,[0xB5644]
     # (9 bytes). Resume is 000A669D mov edx,[edx].
@@ -1319,6 +1379,7 @@ def patch(data: bytearray) -> dict:
         "net_clear": entries["net_clear"],
         "net_wnet": entries["net_wnet"],
         "script_save": entries["script_save"],
+        "charconv_refresh": entries["charconv_refresh"],
         "scope_from_fixed": scope_fixed,
         "grid_fixed": grid_fixed,
         "size": len(blob),
@@ -1374,6 +1435,7 @@ def main() -> None:
         f"wnet={meta['net_wnet']:#x} flag @ {G_NET_STATUS_VA:#x}"
     )
     print(f"  XVIscript Save hook @ {meta['script_save']:#x}")
+    print(f"  Character conversion refresh hook @ {meta['charconv_refresh']:#x}")
 
 
 if __name__ == "__main__":
